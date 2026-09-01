@@ -1,7 +1,7 @@
 'use client';
 
 import {FormEvent,useEffect,useRef,useState} from 'react';
-import * as maplibregl from 'maplibre-gl';
+import {Map as MapLibreMap,Marker as MapLibreMarker,NavigationControl,ScaleControl} from 'maplibre-gl';
 import type {Map as MLMap,Marker} from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import {AlertTriangle,Camera,ChevronRight,CloudRain,Layers,LocateFixed,MapPin,Plane,Radio,RefreshCw,Search,Ship,Sun,TrafficCone,Wind,X} from 'lucide-react';
@@ -20,13 +20,13 @@ export default function Home(){
  const [weather,setWeather]=useState<{temperature_2m:number;wind_speed_10m:number;weather_code:number}|null>(null),[updated,setUpdated]=useState<Date|null>(null);
  const load=async()=>{setLoading(true);try{const r=await fetch('/api/feeds');if(!r.ok)throw new Error();const d=await r.json();setFlights(d.flights||[]);setCameras(d.cameras||[]);setError(d.errors?.join(' · ')||'');setUpdated(new Date(d.updatedAt));}catch{setError('Live feeds could not be reached. Retrying automatically.')}finally{setLoading(false)}};
  const weatherAt=async(lat:number,lon:number)=>{try{const r=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(3)}&longitude=${lon.toFixed(3)}&current=temperature_2m,weather_code,wind_speed_10m`);const d=await r.json();setWeather(d.current);}catch{}};
- useEffect(()=>{if(!host.current)return;const m=new maplibregl.Map({container:host.current,style:street,center:[-2.7,54.6],zoom:5.25,maxZoom:18,minZoom:4});m.addControl(new maplibregl.NavigationControl({showCompass:true}),'bottom-right');m.addControl(new maplibregl.ScaleControl({unit:'metric'}),'bottom-left');m.on('load',()=>weatherAt(54.6,-2.7));m.on('moveend',()=>{const c=m.getCenter();weatherAt(c.lat,c.lng)});map.current=m;return()=>m.remove()},[]);
+ useEffect(()=>{if(!host.current)return;const m=new MapLibreMap({container:host.current,style:street,center:[-2.7,54.6],zoom:5.25,maxZoom:18,minZoom:4});m.addControl(new NavigationControl({showCompass:true}),'bottom-right');m.addControl(new ScaleControl({unit:'metric'}),'bottom-left');m.on('load',()=>weatherAt(54.6,-2.7));m.on('moveend',()=>{const c=m.getCenter();weatherAt(c.lat,c.lng)});map.current=m;return()=>m.remove()},[]);
  useEffect(()=>{map.current?.setStyle(base==='street'?street:satellite)},[base]);
  useEffect(()=>{load();const id=setInterval(load,60000);return()=>clearInterval(id)},[]);
  useEffect(()=>{markers.current.forEach(m=>m.remove());markers.current=[];if(!map.current)return;
-   if(flightOn)flights.forEach(f=>{const el=document.createElement('button');el.className='map-marker aircraft';el.title=`Flight ${f.callsign}`;el.innerHTML='<span>✈</span>';el.style.transform=`rotate(${f.heading||0}deg)`;el.onclick=()=>setSelection({kind:'flight',data:f});markers.current.push(new maplibregl.Marker({element:el}).setLngLat([f.lon,f.lat]).addTo(map.current!))});
-   if(camOn)cameras.forEach(c=>{const el=document.createElement('button');el.className='map-marker camera';el.title=c.name;el.innerHTML='<span>●</span>';el.onclick=()=>setSelection({kind:'camera',data:c});markers.current.push(new maplibregl.Marker({element:el}).setLngLat([c.lon,c.lat]).addTo(map.current!))});
-   if(radioOn)radio.forEach(r=>{const el=document.createElement('button');el.className='map-marker radio';el.title=r[0] as string;el.innerHTML='<span>◉</span>';el.onclick=()=>window.open(r[3] as string,'_blank');markers.current.push(new maplibregl.Marker({element:el}).setLngLat([r[2] as number,r[1] as number]).addTo(map.current!))});
+   if(flightOn)flights.forEach(f=>{const el=document.createElement('button');el.className='map-marker aircraft';el.title=`Flight ${f.callsign}`;el.innerHTML='<span>✈</span>';el.style.transform=`rotate(${f.heading||0}deg)`;el.onclick=()=>setSelection({kind:'flight',data:f});markers.current.push(new MapLibreMarker({element:el}).setLngLat([f.lon,f.lat]).addTo(map.current!))});
+   if(camOn)cameras.forEach(c=>{const el=document.createElement('button');el.className='map-marker camera';el.title=c.name;el.innerHTML='<span>●</span>';el.onclick=()=>setSelection({kind:'camera',data:c});markers.current.push(new MapLibreMarker({element:el}).setLngLat([c.lon,c.lat]).addTo(map.current!))});
+   if(radioOn)radio.forEach(r=>{const el=document.createElement('button');el.className='map-marker radio';el.title=r[0] as string;el.innerHTML='<span>◉</span>';el.onclick=()=>window.open(r[3] as string,'_blank');markers.current.push(new MapLibreMarker({element:el}).setLngLat([r[2] as number,r[1] as number]).addTo(map.current!))});
  },[flights,cameras,flightOn,camOn,radioOn]);
  const search=async(e:FormEvent)=>{e.preventDefault();if(!query.trim()||!map.current)return;try{const r=await fetch(`https://nominatim.openstreetmap.org/search?format=json&countrycodes=gb&limit=1&q=${encodeURIComponent(query)}`);const d=await r.json();if(d[0])map.current.flyTo({center:[+d[0].lon,+d[0].lat],zoom:12,essential:true});}catch{setError('Location search is temporarily unavailable.')}};
  return <main className="app">
