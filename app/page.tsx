@@ -1,72 +1,57 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import * as THREE from 'three';
-import { Activity, AlertTriangle, CloudRain, Crosshair, Plane, Radio, Search, Ship, Video, Waves, Zap } from 'lucide-react';
+import {FormEvent,useEffect,useRef,useState} from 'react';
+import * as maplibregl from 'maplibre-gl';
+import type {Map as MLMap,Marker} from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
+import {AlertTriangle,Camera,ChevronRight,CloudRain,Layers,LocateFixed,MapPin,Plane,Radio,RefreshCw,Search,Ship,Sun,TrafficCone,Wind,X} from 'lucide-react';
 
-const layers = [
-  ['Public cameras', Video, 184, '#19d3ae'], ['Aircraft', Plane, 643, '#78a8ff'],
-  ['Vessels', Ship, 912, '#31c6f4'], ['Radio', Radio, 126, '#c991ff'],
-  ['Weather', CloudRain, 18, '#f2b84b'], ['Public alerts', AlertTriangle, 27, '#ff6577'],
-] as const;
-const events = [
-  ['TRANSPORT', 'M25 J10 · Slow traffic reported', 'National Highways', '18 sec'],
-  ['WEATHER', 'Heavy rain cell moving north-east', 'Met Office', '42 sec'],
-  ['MARITIME', 'CARGO vessel entering Solent', 'AIS public feed', '1 min'],
-  ['AVIATION', 'BAW82 descent into Heathrow', 'OpenSky Network', '2 min'],
-  ['LOCAL', 'Planned road closure · A82', 'Traffic Scotland', '4 min'],
-];
-const points = [[54,75,'plane'],[47,63,'cam'],[58,56,'ship'],[50,49,'radio'],[45,82,'alert'],[61,87,'plane'],[41,39,'cam'],[56,31,'radio'],[65,45,'ship'],[37,68,'plane'],[52,91,'cam'],[44,55,'alert']] as const;
+type Flight={icao:string;callsign:string;country:string;lon:number;lat:number;altitude:number|null;ground:boolean;velocity:number|null;heading:number|null;verticalRate:number|null;squawk:string|null};
+type Cam={id:string;name:string;lat:number;lon:number;image:string;video:string;view?:string;available:boolean};
+type Selection={kind:'flight';data:Flight}|{kind:'camera';data:Cam}|null;
+const street={version:8 as const,sources:{osm:{type:'raster' as const,tiles:['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],tileSize:256,attribution:'© OpenStreetMap contributors'}},layers:[{id:'osm',type:'raster' as const,source:'osm'}]};
+const satellite={version:8 as const,sources:{sat:{type:'raster' as const,tiles:['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],tileSize:256,attribution:'Tiles © Esri'}},layers:[{id:'sat',type:'raster' as const,source:'sat'}]};
+const radio=[['BBC Radio 1',51.518,-0.143,'https://www.bbc.co.uk/sounds/play/live:bbc_radio_one'],['BBC Radio 2',51.518,-0.143,'https://www.bbc.co.uk/sounds/play/live:bbc_radio_two'],['Capital London',51.512,-0.137,'https://www.globalplayer.com/live/capital/uk/'],['BBC Radio Scotland',55.858,-4.259,'https://www.bbc.co.uk/sounds/play/live:bbc_radio_scotland_fm'],['BBC Radio Wales',51.481,-3.181,'https://www.bbc.co.uk/sounds/play/live:bbc_radio_wales_fm']];
 
-export default function Home() {
-  const threeHost = useRef<HTMLDivElement>(null);
-  const [time, setTime] = useState(new Date());
-  const [selected, setSelected] = useState('Public cameras');
-  const [zoom, setZoom] = useState(1);
-  const [paused, setPaused] = useState(false);
-  useEffect(() => { const id = setInterval(() => { if (!paused) setTime(new Date()); }, 1000); return () => clearInterval(id); }, [paused]);
-  useEffect(() => {
-    const host=threeHost.current;if(!host)return;
-    const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(50,1,.1,100);
-    const renderer=new THREE.WebGLRenderer({alpha:true,antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,2));host.appendChild(renderer.domElement);
-    const geometry=new THREE.BufferGeometry();const vertices=[];for(let i=0;i<650;i++)vertices.push((Math.random()-.5)*11,(Math.random()-.5)*8,(Math.random()-.5)*5);geometry.setAttribute('position',new THREE.Float32BufferAttribute(vertices,3));
-    const cloud=new THREE.Points(geometry,new THREE.PointsMaterial({color:0x32d9b4,size:.018,transparent:true,opacity:.22}));scene.add(cloud);camera.position.z=6;
-    let frame=0;const resize=()=>{const w=host.clientWidth,h=host.clientHeight;renderer.setSize(w,h);camera.aspect=w/h;camera.updateProjectionMatrix()};resize();const observer=new ResizeObserver(resize);observer.observe(host);
-    const animate=()=>{cloud.rotation.y+=.0006;cloud.rotation.x+=.00015;renderer.render(scene,camera);frame=requestAnimationFrame(animate)};animate();
-    return()=>{cancelAnimationFrame(frame);observer.disconnect();renderer.dispose();geometry.dispose();host.removeChild(renderer.domElement)};
-  },[]);
-  return <main className="ops-shell">
-    <header className="topbar">
-      <div className="brand"><span className="brand-mark"><Waves size={18}/></span><div><strong>UK SIGNAL</strong><small>PUBLIC SITUATIONAL AWARENESS</small></div></div>
-      <div className="search"><Search size={15}/><input aria-label="Search UK location" placeholder="Search location, vessel, flight or station…"/><kbd>⌘ K</kbd></div>
-      <div className="status"><span className="live-dot"/>LIVE <b>{time.toLocaleTimeString('en-GB',{hour12:false})}</b><button onClick={()=>setPaused(!paused)}>{paused?'Resume':'Pause'}</button></div>
-    </header>
-    <section className="workspace">
-      <aside className="left-panel panel">
-        <div className="panel-title"><span>LAYERS</span><b>6 / 6</b></div>
-        {layers.map(([name,Icon,count,color])=><button className={`layer ${selected===name?'active':''}`} key={name} onClick={()=>setSelected(name)}><span className="layer-icon" style={{color}}><Icon size={16}/></span><span>{name}</span><b>{count}</b><i style={{background:color}}/></button>)}
-        <div className="mini-weather"><span>UNITED KINGDOM</span><div><b>14°</b><CloudRain size={34}/></div><p>Light rain · W 19 km/h</p><div className="weather-row"><span>London<br/><b>16°</b></span><span>Cardiff<br/><b>15°</b></span><span>Edinburgh<br/><b>11°</b></span></div></div>
-        <div className="integrity"><Activity size={15}/><span><b>FEED INTEGRITY 96.8%</b><small>2 providers delayed</small></span></div>
-      </aside>
-      <section className="map-wrap">
-        <div className="map-meta"><span><Crosshair size={14}/>54.7024° N, 3.2766° W</span><span>HYBRID · PUBLIC SOURCES</span></div>
-        <div className="map-stage" style={{'--zoom':zoom} as React.CSSProperties}>
-          <div className="three-field" ref={threeHost}/>
-          <div className="grid-lines"/><div className="radar-ring r1"/><div className="radar-ring r2"/><div className="radar-sweep"/>
-          <svg className="uk-map" viewBox="0 0 410 600" aria-label="Stylized map of the United Kingdom"><path d="M245 45l-26 30 8 35-34 31 19 26-25 45 18 33-35 24 11 39-38 34 18 51-27 39 20 31-11 47 43 5 28-31 30-4 14-42 38-20-7-39 31-47-18-58-35-28-22-49 19-48-21-48 10-45-25-35z"/><path d="M88 302l-35 21 13 55 44-12 15-43z"/></svg>
-          {points.map(([x,y,type],i)=><button key={i} className={`pin ${type}`} style={{left:`${x}%`,top:`${y}%`}} aria-label={`${type} marker`}><span>{type==='cam'?'●':type==='plane'?'✈':type==='ship'?'◆':type==='radio'?'◉':'!'}</span></button>)}
-          <div className="selected-card"><span className="cam-preview"><Video size={24}/><i>PUBLIC FEED</i></span><div><small>A30 / Temple · London</small><b>Westbound carriageway</b><span><i/> LIVE · refreshed 21s ago</span></div></div>
-          <div className="zoom"><button onClick={()=>setZoom(Math.min(1.35,zoom+.1))}>+</button><button onClick={()=>setZoom(Math.max(.8,zoom-.1))}>−</button></div>
-        </div>
-        <div className="map-footer"><span><i className="green"/>184 cameras</span><span><i className="blue"/>643 aircraft</span><span><i className="cyan"/>912 vessels</span><span><i className="purple"/>126 stations</span><b>Public, licensed or simulated data</b></div>
-      </section>
-      <aside className="right-panel panel">
-        <div className="panel-title"><span>LIVE INTELLIGENCE</span><b><Zap size={12}/>STREAMING</b></div><div className="severity"><span>ALL</span><span>CRITICAL</span><span>WATCH</span></div>
-        <div className="event-list">{events.map((e,i)=><article className="event" key={e[1]}><div className={`event-icon e${i}`}><AlertTriangle size={14}/></div><div><small>{e[0]}<time>{e[3]}</time></small><b>{e[1]}</b><span>{e[2]} · verified public feed</span></div></article>)}</div>
-        <div className="snapshot"><span>NATIONAL SNAPSHOT</span><div><b>1,902<small> active objects</small></b><em>+8.4%</em></div><svg viewBox="0 0 260 55"><path d="M0 42 L18 36 34 39 52 23 69 31 86 12 104 25 121 18 140 28 158 9 177 20 195 15 213 29 232 17 260 6"/></svg></div>
-        <button className="source-btn">Manage data sources <span>12 connected →</span></button>
-      </aside>
-    </section>
-    <footer className="ticker"><span className="ticker-label">BREAKING / LOCAL</span><div><b>London</b> TfL reports minor delays on the Elizabeth line <i>•</i><b>Manchester</b> Wind advisory through 21:00 <i>•</i><b>Portsmouth</b> Harbour traffic normal</div><span>UPDATED NOW</span></footer>
-  </main>;
+export default function Home(){
+ const host=useRef<HTMLDivElement>(null),map=useRef<MLMap|null>(null),markers=useRef<Marker[]>([]);
+ const [flights,setFlights]=useState<Flight[]>([]),[cameras,setCameras]=useState<Cam[]>([]),[selection,setSelection]=useState<Selection>(null),[loading,setLoading]=useState(true),[error,setError]=useState('');
+ const [flightOn,setFlightOn]=useState(true),[camOn,setCamOn]=useState(true),[radioOn,setRadioOn]=useState(false),[base,setBase]=useState<'street'|'satellite'>('street'),[query,setQuery]=useState('');
+ const [weather,setWeather]=useState<{temperature_2m:number;wind_speed_10m:number;weather_code:number}|null>(null),[updated,setUpdated]=useState<Date|null>(null);
+ const load=async()=>{setLoading(true);try{const r=await fetch('/api/feeds');if(!r.ok)throw new Error();const d=await r.json();setFlights(d.flights||[]);setCameras(d.cameras||[]);setError(d.errors?.join(' · ')||'');setUpdated(new Date(d.updatedAt));}catch{setError('Live feeds could not be reached. Retrying automatically.')}finally{setLoading(false)}};
+ const weatherAt=async(lat:number,lon:number)=>{try{const r=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(3)}&longitude=${lon.toFixed(3)}&current=temperature_2m,weather_code,wind_speed_10m`);const d=await r.json();setWeather(d.current);}catch{}};
+ useEffect(()=>{if(!host.current)return;const m=new maplibregl.Map({container:host.current,style:street,center:[-2.7,54.6],zoom:5.25,maxZoom:18,minZoom:4});m.addControl(new maplibregl.NavigationControl({showCompass:true}),'bottom-right');m.addControl(new maplibregl.ScaleControl({unit:'metric'}),'bottom-left');m.on('load',()=>weatherAt(54.6,-2.7));m.on('moveend',()=>{const c=m.getCenter();weatherAt(c.lat,c.lng)});map.current=m;return()=>m.remove()},[]);
+ useEffect(()=>{map.current?.setStyle(base==='street'?street:satellite)},[base]);
+ useEffect(()=>{load();const id=setInterval(load,60000);return()=>clearInterval(id)},[]);
+ useEffect(()=>{markers.current.forEach(m=>m.remove());markers.current=[];if(!map.current)return;
+   if(flightOn)flights.forEach(f=>{const el=document.createElement('button');el.className='map-marker aircraft';el.title=`Flight ${f.callsign}`;el.innerHTML='<span>✈</span>';el.style.transform=`rotate(${f.heading||0}deg)`;el.onclick=()=>setSelection({kind:'flight',data:f});markers.current.push(new maplibregl.Marker({element:el}).setLngLat([f.lon,f.lat]).addTo(map.current!))});
+   if(camOn)cameras.forEach(c=>{const el=document.createElement('button');el.className='map-marker camera';el.title=c.name;el.innerHTML='<span>●</span>';el.onclick=()=>setSelection({kind:'camera',data:c});markers.current.push(new maplibregl.Marker({element:el}).setLngLat([c.lon,c.lat]).addTo(map.current!))});
+   if(radioOn)radio.forEach(r=>{const el=document.createElement('button');el.className='map-marker radio';el.title=r[0] as string;el.innerHTML='<span>◉</span>';el.onclick=()=>window.open(r[3] as string,'_blank');markers.current.push(new maplibregl.Marker({element:el}).setLngLat([r[2] as number,r[1] as number]).addTo(map.current!))});
+ },[flights,cameras,flightOn,camOn,radioOn]);
+ const search=async(e:FormEvent)=>{e.preventDefault();if(!query.trim()||!map.current)return;try{const r=await fetch(`https://nominatim.openstreetmap.org/search?format=json&countrycodes=gb&limit=1&q=${encodeURIComponent(query)}`);const d=await r.json();if(d[0])map.current.flyTo({center:[+d[0].lon,+d[0].lat],zoom:12,essential:true});}catch{setError('Location search is temporarily unavailable.')}};
+ return <main className="app">
+  <header className="mast"><div className="logo"><span>U<span>K</span></span><div><b>SENTINEL UK</b><small>OPEN DATA COMMAND</small></div></div><form onSubmit={search}><Search size={16}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search any UK town, postcode or landmark"/><button>Locate</button></form><div className="live"><i/>LIVE DATA <strong>{updated?.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})||'CONNECTING'}</strong></div></header>
+  <section className="body"><aside className="rail"><div className="rail-head"><span>MAP LAYERS</span><Layers size={15}/></div>
+    <Layer icon={<Plane/>} color="#f59e0b" label="Live aircraft" count={flights.length} on={flightOn} toggle={()=>setFlightOn(!flightOn)}/>
+    <Layer icon={<Camera/>} color="#10b981" label="TfL JamCams" count={cameras.length} on={camOn} toggle={()=>setCamOn(!camOn)}/>
+    <Layer icon={<Radio/>} color="#a78bfa" label="Radio stations" count={radio.length} on={radioOn} toggle={()=>setRadioOn(!radioOn)}/>
+    <Layer icon={<Ship/>} color="#38bdf8" label="AIS vessels" count="API" on={false} disabled toggle={()=>{}}/>
+    <div className="source-note"><b>REAL FEEDS</b><p>OpenSky aircraft and TfL camera positions refresh every 60 seconds.</p></div>
+    <div className="weather-card"><div><span>MAP CENTRE</span>{weather&&weather.weather_code<3?<Sun/>:<CloudRain/>}</div><strong>{weather?`${Math.round(weather.temperature_2m)}°C`:'—'}</strong><p><Wind size={13}/>{weather?`${Math.round(weather.wind_speed_10m)} km/h wind`:'Loading weather'}</p><small>Open-Meteo · live model</small></div>
+    <div className="health"><span><i className={error?'warn':''}/>{error?'PARTIAL SERVICE':'ALL SYSTEMS LIVE'}</span><button onClick={load}><RefreshCw className={loading?'spin':''} size={14}/></button></div>
+  </aside>
+  <section className="map-area"><div ref={host} className="real-map"/><div className="map-top"><div className="basemap"><button className={base==='street'?'active':''} onClick={()=>setBase('street')}>STREET</button><button className={base==='satellite'?'active':''} onClick={()=>setBase('satellite')}>SATELLITE</button></div><button className="home" onClick={()=>map.current?.flyTo({center:[-2.7,54.6],zoom:5.25})}><LocateFixed size={15}/>FULL UK</button></div>
+    {loading&&flights.length===0&&<div className="loading"><RefreshCw className="spin"/>Connecting to live UK feeds…</div>}
+    {selection&&<Detail selection={selection} close={()=>setSelection(null)}/>}<div className="legend"><span><i className="air"/>Aircraft</span><span><i className="cam"/>Traffic camera</span><span><i className="rad"/>Radio</span><b>{flights.length+cameras.length} LIVE OBJECTS</b></div>
+  </section>
+  <aside className="intel"><div className="intel-title"><span>LIVE OVERVIEW</span><em>REFRESH 60s</em></div><div className="metrics"><div><Plane/><span><b>{flights.length}</b>aircraft</span></div><div><Camera/><span><b>{cameras.length}</b>cameras</span></div></div>
+    <h3>NEAR LONDON NOW</h3><div className="activity">{flights.filter(f=>f.lat<52&&f.lon>-1.2).slice(0,7).map(f=><button key={f.icao} onClick={()=>{setSelection({kind:'flight',data:f});map.current?.flyTo({center:[f.lon,f.lat],zoom:9})}}><span className="activity-icon"><Plane/></span><span><b>{f.callsign||f.icao}</b><small>{f.country} · {f.altitude?Math.round(f.altitude*3.28084).toLocaleString()+' ft':'ground'}</small></span><ChevronRight/></button>)}</div>
+    <h3>PUBLIC CAMERA WALL</h3><div className="cam-grid">{cameras.slice(0,4).map(c=><button key={c.id} onClick={()=>{setSelection({kind:'camera',data:c});map.current?.flyTo({center:[c.lon,c.lat],zoom:13})}}><img src={c.image} alt=""/><span>{c.name}</span></button>)}</div>
+    <div className="legal"><AlertTriangle/><p><b>Public-data system</b>Only official, licensed feeds are displayed. No private-device discovery or personal tracking.</p></div>
+  </aside></section>
+  <footer><span>OPENSKY NETWORK</span><i/> <span>TRANSPORT FOR LONDON</span><i/><span>OPENSTREETMAP</span><i/><span>OPEN-METEO</span><b>{error||'Feeds operational'}</b></footer>
+ </main>
 }
+
+function Layer({icon,color,label,count,on,toggle,disabled=false}:{icon:React.ReactNode;color:string;label:string;count:number|string;on:boolean;toggle:()=>void;disabled?:boolean}){return <button className={`layer ${on?'on':''} ${disabled?'disabled':''}`} onClick={toggle} disabled={disabled}><span style={{color}}>{icon}</span><div><b>{label}</b><small>{disabled?'Provider key required':'Public live feed'}</small></div><strong>{count}</strong><i/></button>}
+function Detail({selection,close}:{selection:NonNullable<Selection>;close:()=>void}){if(selection.kind==='camera'){const c=selection.data;return <article className="detail camera-detail"><button className="close" onClick={close}><X/></button><div className="video"><video key={c.video} src={c.video} autoPlay muted loop playsInline poster={c.image}/><span><i/>LIVE · TfL JAMCAM</span></div><div className="detail-copy"><small>PUBLIC TRAFFIC CAMERA</small><h2>{c.name}</h2><p><MapPin/>London · {c.view||'Road view'}</p><div><span>STATUS <b>{c.available?'AVAILABLE':'OFFLINE'}</b></span><span>REFRESH <b>~5 MIN</b></span></div><a href={c.video} target="_blank">Open source stream <ChevronRight/></a></div></article>};const f=selection.data;return <article className="detail flight-detail"><button className="close" onClick={close}><X/></button><div className="flight-hero"><Plane style={{transform:`rotate(${f.heading||0}deg)`}}/><span>LIVE ADS-B POSITION</span></div><div className="detail-copy"><small>AIRCRAFT · {f.icao.toUpperCase()}</small><h2>{f.callsign||'Unknown callsign'}</h2><p>{f.country}</p><div><span>ALTITUDE <b>{f.altitude?`${Math.round(f.altitude*3.28084).toLocaleString()} FT`:'GROUND'}</b></span><span>SPEED <b>{f.velocity?`${Math.round(f.velocity*1.94384)} KT`:'—'}</b></span><span>HEADING <b>{f.heading?`${Math.round(f.heading)}°`:'—'}</b></span><span>SQUAWK <b>{f.squawk||'—'}</b></span></div><small>Position supplied by OpenSky Network</small></div></article>}
